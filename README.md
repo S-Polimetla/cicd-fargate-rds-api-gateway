@@ -1,21 +1,15 @@
 # The *`README.md`* is different for each branch. Please read the instructions carefully
 
 Please follow the numbering on each branch to track the progress step by step.
-**This branch is step number 0**
+**This branch is step number 1**
 
 # cicd-fargate-rds-api-gateway
-This is a pure Springboot Application with a runtime DB which can be run as a docker container
 
-## For local testing
-Clone the repository.  Make sure you have Java11 and Docker installed.  If you do not want to install Java11, you may chose to mount the project onto a docker container based on openjdk:11 and docker installed.
+## Changes from last step [0-inmemory-springboot-api](https://github.com/S-Polimetla/cicd-fargate-rds-api-gateway/tree/0-inmemory-springboot-api)
 
-Run the following commands
-````
-mvn clean install
-docker build -t <Your-Image-Name>:<Your-Tag> .
-docker run -p 8080:8080 <Your-Image-Name>:<Your-Tag>
-````
-
-Once the docker container starts running, you can test it on `localhost:8080/employees`.  At start you would not have any data. Create data using `POST` requests.
-
-The CI/CD part starts from the next step on branch [1-cicd-fargate-inmemory-db](https://github.com/S-Polimetla/cicd-fargate-rds-api-gateway/tree/1-cicd-fargate-inmemory-db)
+1. CI/CD starts from this step. To deploy the Springboot Application on AWS using CodePipeline and Fargate, the configuration is added
+2. The file [network-config.yaml](./cloudformation-generic/network-config.yaml) creates VPC and other network infrastructure necessary for deployment. This also contains security groups and LoadBalancer configuration.
+3. The file [build-pipeline-docker-ecs.yaml](./cloudformation-generic/build-pipeline-docker-ecs.yaml) creates a CodePipeline and its necessary stages with resources. The deployment is done in the VPC created in the last step.
+4. The Database here is embedded within the instance running and hence only available while the container is running.
+5. Hence this solution is not really persistent and the scope is limited to the test environment.
+6. The next step on branch [2-rds-fargate-secrets](https://github.com/S-Polimetla/cicd-fargate-rds-api-gateway/tree/2-rds-fargate-secrets) creates a PostgreSQL on RDS within the same VPC and the Fargate application connects to it.

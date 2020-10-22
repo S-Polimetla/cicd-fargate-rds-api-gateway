@@ -1,0 +1,8 @@
+{
+    "Parameters": {
+      "DockerImageRepository": "employee-ecs-image",
+      "ImageTag": "latest",
+      "NetworkStackName": "network-config",
+      "Stage": "prod"
+    }
+  }

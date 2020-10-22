@@ -1,0 +1,309 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template to create CodePipeline to build and deploy a Spring boot application as a docker container on ECS
+
+Parameters:
+
+  ProjectName:
+    Type: String
+    Description: The name of the project.
+    Default: employee-service
+  RepositoryOwner:
+    Type: String
+    Description: The owner of the GitHub repository.
+    Default: S-Polimetla
+  RepositoryName:
+    Type: String
+    Description: The name of the GitHub repository.
+    Default: cicd-fargate-rds-api-gateway
+  RepositoryBranch:
+    Type: String
+    Description: The name of the branch.
+    Default: 1-codepipeline-fargate
+  DockerImageRepository: # Should be the same as 'DockerImageRepository' in config.json
+    Type: String
+    Description: The name of the ECR Repository  
+    Default: employee-ecs-image
+
+Resources:
+
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub ${ProjectName}-pipeline
+      Stages:
+        - Name: Checkout
+          Actions:
+            - Name: Checkout
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Provider: GitHub
+                Version: 1
+              Configuration:
+                Owner: !Ref RepositoryOwner
+                Repo: !Ref RepositoryName
+                Branch: !Ref RepositoryBranch
+                OAuthToken: "{{resolve:ssm:/github/AuthToken:1}}" # Should be changed
+              OutputArtifacts:
+              - Name: SourceOutput
+        - Name: Build
+          Actions:
+            - Name: Build
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                ProjectName: !Ref CodeBuildProject
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: BuildOutput
+        - Name: DeployDev
+          Actions:
+            - Name: Prepare
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: 1
+              Configuration:
+                ActionMode: CHANGE_SET_REPLACE
+                Capabilities: CAPABILITY_NAMED_IAM
+                TemplatePath: BuildOutput::template.yaml
+                TemplateConfiguration: BuildOutput::config-dev.json
+                ChangeSetName: !Sub ${ProjectName}-dev-changeset
+                StackName: !Sub ${ProjectName}-dev
+                RoleArn: !GetAtt CloudFormationServiceRole.Arn
+              InputArtifacts:
+                - Name: BuildOutput
+              RunOrder: 1
+            - Name: Execute
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: 1
+              Configuration:
+                ActionMode: CHANGE_SET_EXECUTE
+                ChangeSetName: !Sub ${ProjectName}-dev-changeset
+                StackName: !Sub ${ProjectName}-dev
+              RunOrder: 2
+        - Name: ApproveForProd
+          Actions:
+            - Name: Approval
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Provider: Manual
+                Version: 1
+        - Name: DeployProd
+          Actions:
+            - Name: Prepare
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: 1
+              Configuration:
+                ActionMode: CHANGE_SET_REPLACE
+                Capabilities: CAPABILITY_NAMED_IAM
+                TemplatePath: BuildOutput::template.yaml
+                TemplateConfiguration: BuildOutput::config-prod.json
+                ChangeSetName: !Sub ${ProjectName}-prod-changeset
+                StackName: !Sub ${ProjectName}-prod
+                RoleArn: !GetAtt CloudFormationServiceRole.Arn
+              InputArtifacts:
+                - Name: BuildOutput
+              RunOrder: 1
+            - Name: Execute
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: 1
+              Configuration:
+                ActionMode: CHANGE_SET_EXECUTE
+                ChangeSetName: !Sub ${ProjectName}-prod-changeset
+                StackName: !Sub ${ProjectName}-prod
+              RunOrder: 2        
+      RoleArn: !GetAtt  CodePipelineServiceRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactsBucket
+
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub ${ProjectName}-build-package
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: buildspec.yaml
+      Artifacts:
+        Type: CODEPIPELINE
+      Cache: # Caching is recommended for builds which download large images. In this case, openjdk
+        Type: LOCAL
+        Modes:
+          - LOCAL_CUSTOM_CACHE
+          - LOCAL_DOCKER_LAYER_CACHE
+          - LOCAL_SOURCE_CACHE        
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:4.0
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: S3_BUCKET
+            Value: !Ref ArtifactsBucket
+          - Name: ECR_REPO
+            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${DockerImageRepository}      
+
+  ECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      ImageScanningConfiguration:
+        scanOnPush: true
+      RepositoryName: !Ref DockerImageRepository
+      LifecyclePolicy:
+        LifecyclePolicyText: "{\"rules\":[{\"rulePriority\":1,\"description\":\"Maintain maximum of 5 versions\",\"selection\":{\"tagStatus\":\"any\",\"countType\":\"imageCountMoreThan\",\"countNumber\":5},\"action\":{\"type\":\"expire\"}}]}"
+      # https://docs.aws.amazon.com/AmazonECR/latest/userguide/lifecycle_policy_examples.html
+      # Image count is limited to 5 versions here. You may not want to do this in production
+
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub de.polimetla.codepipeline.${ProjectName}
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteBuildArtifactsAfterOneWeek
+            ExpirationInDays: 7
+            Status: Enabled      
+
+  CodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: CodePipelineTrustPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                Resource:
+                  - !GetAtt CodeBuildProject.Arn                  
+              - Effect: Allow
+                Action:
+                  - cloudformation:DescribeStacks
+                  - cloudformation:CreateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:UpdateStack
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:SetStackPolicy
+                  - cloudformation:ValidateTemplate
+                  - iam:PassRole
+                Resource:
+                  - "*"
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${ArtifactsBucket}/*
+
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: CodeBuildTrustPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${ProjectName}-build-package
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${ProjectName}-build-package:*                  
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource:
+                  - !Sub arn:aws:s3:::${ArtifactsBucket}/*                  
+              - Effect: Allow
+                Action:
+                  - ecr:*
+                Resource:
+                  - "*" 
+                  # !GetAtt ECRRepository.Arn would fail since login to ECR is generic
+
+  #
+  # Service role according to https://docs.aws.amazon.com/lambda/latest/dg/build-pipeline.html
+  #
+  CloudFormationServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - cloudformation.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: CloudFormationTrustPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:              
+              - Effect: Allow
+                Action:
+                  - ec2:*
+                  - elasticloadbalancing:*
+                  - logs:*
+                  - ecs:*
+                Resource:
+                  - "*"
+              - Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:GetRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:PassRole
+                Resource:
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/*

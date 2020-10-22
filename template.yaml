@@ -1,0 +1,183 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for running a ECS FARGATE application based on an image from ECR
+
+Parameters:
+
+  DockerImageRepository:
+    Type: String
+    Description: The name of docker repository
+
+  ImageTag:
+    Type: String
+    Description: The tag of the docker image to be deployed
+
+  NetworkStackName:
+    Type: String
+    Description: The name of the stack which created Network and DB
+  
+  Stage:
+    Type: String
+    Description: The name of the deployment stage
+
+Resources:
+
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub EmployeeApi-${Stage}
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ecs-services-${Stage}
+      Subnets:
+        - Fn::ImportValue:
+            !Sub ${NetworkStackName}-subnet1
+        - Fn::ImportValue:
+            !Sub ${NetworkStackName}-subnet2
+      SecurityGroups:
+        - Fn::ImportValue:
+            !Sub ${NetworkStackName}-ELB-SG
+
+  LoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref DefaultTargetGroup
+
+  DefaultTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub default-${Stage}
+      VpcId:
+        Fn::ImportValue:
+          !Sub ${NetworkStackName}-VPC
+      Protocol: HTTP
+      Port: 80
+
+  CloudWatchLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub employee-api-${Stage}
+      RetentionInDays: 1 # You may not want to do this for production
+
+  Task:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub employee-${Stage}
+      Cpu: 2048
+      Memory: 4096
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !Ref ECSTaskExecutionRole
+      ContainerDefinitions:
+        - Name: !Sub employee-api-${Stage}
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${DockerImageRepository}:${ImageTag}
+          Cpu: 2048
+          Memory: 4096
+          PortMappings:
+            - ContainerPort: 8080
+              Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub employee-api-${Stage}
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: !Sub employee-api-${Stage}
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: ListenerRule
+    Properties:
+      ServiceName: !Sub employee-service-${Stage}
+      TaskDefinition: !Ref Task
+      Cluster: !Ref ECSCluster
+      LaunchType: FARGATE
+      DesiredCount: 2 # Each instance takes 50% of the load
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - Fn::ImportValue:
+                !Sub ${NetworkStackName}-subnet1
+            - Fn::ImportValue:
+                !Sub ${NetworkStackName}-subnet2
+          SecurityGroups:
+            - Fn::ImportValue:
+                !Sub ${NetworkStackName}-container-SG
+      LoadBalancers:
+        - ContainerName: !Sub employee-api-${Stage}
+          ContainerPort: 8080
+          TargetGroupArn: !Ref TargetGroup
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub employee-tg-${Stage}
+      VpcId:
+        Fn::ImportValue:
+          !Sub ${NetworkStackName}-VPC
+      Port: 80
+      Protocol: HTTP
+      Matcher:
+        HttpCode: 200-299
+      TargetType: ip
+
+  ListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref LoadBalancerListener
+      Priority: 2
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - /*
+      Actions:
+        - TargetGroupArn: !Ref TargetGroup
+          Type: forward
+
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: AmazonECSTaskExecutionRolePolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  # ECS Tasks to download images from ECR
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  # ECS tasks to upload logs to CloudWatch
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+Outputs:
+
+  ApiEndpoint:
+    Description: Employee API Endpoint
+    Value: !Sub
+      - 'http://${ELB_DNS}/employees'
+      - ELB_DNS: !GetAtt LoadBalancer.DNSName     
+    Export:
+      Name: !Sub ${Stage}-EmployeeApiEndpoint
