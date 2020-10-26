@@ -1,9 +1,12 @@
-# The *`README.md`* is different for each branch. Please read the instructions carefully
+# cicd-fargate-rds-api-gateway
+
+## The *`README.md`* is different for each branch. Please read the instructions carefully
 
 Please follow the numbering on each branch to track the progress step by step.
 **This branch is step number 1**
 
-# cicd-fargate-rds-api-gateway
+The workflow of step 1 looks like this
+![alt text](./Application_Flow.png "Application flow")
 
 ## Changes from last step [0-inmemory-springboot-api](https://github.com/S-Polimetla/cicd-fargate-rds-api-gateway/tree/0-inmemory-springboot-api)
 
