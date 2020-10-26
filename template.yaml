@@ -80,6 +80,15 @@ Resources:
           Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${DockerImageRepository}:${ImageTag}
           Cpu: 2048
           Memory: 4096
+          Secrets:
+            - Name: DB_HOST
+              ValueFrom: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/DataBaseCredentials/${Stage}/host
+            - Name: DB_NAME
+              ValueFrom: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/DataBaseCredentials/${Stage}/dbname
+            - Name: DB_USERNAME
+              ValueFrom: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/DataBaseCredentials/${Stage}/username
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/DataBaseCredentials/${Stage}/password
           PortMappings:
             - ContainerPort: 8080
               Protocol: tcp
@@ -171,6 +180,11 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameters
+                Resource:
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/DataBaseCredentials/*
 
 Outputs:
 

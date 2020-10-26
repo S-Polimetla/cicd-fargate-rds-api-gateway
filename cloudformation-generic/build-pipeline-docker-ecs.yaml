@@ -18,7 +18,7 @@ Parameters:
   RepositoryBranch:
     Type: String
     Description: The name of the branch.
-    Default: 1-codepipeline-fargate
+    Default: 2-rds-fargate-secrets
   DockerImageRepository: # Should be the same as 'DockerImageRepository' in config.json
     Type: String
     Description: The name of the ECR Repository  

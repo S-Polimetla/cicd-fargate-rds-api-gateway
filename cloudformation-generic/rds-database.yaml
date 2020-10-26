@@ -1,0 +1,104 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for deploying a PostgresSQL instance on RDS
+# This stack is dependent on network-config stack
+
+Parameters:
+
+  DBInstanceID:
+    Type: String
+    Description: The ID of the DB Instance
+    Default: employee 
+    MinLength: 1
+    MaxLength: 63
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+
+  DBInstanceClass:
+    Type: String
+    Description: The class of the DB Instance
+    Default: db.t2.micro # Eligible for Free tier
+  
+  DBAllocatedStorage:
+    Type: String
+    Description: The size of the database in GB
+    Default: 20 # Eligible for Free tier
+
+  DBEngine:  
+    Type: String
+    Description: The Engine for the DB
+    Default: postgres
+
+  DBEngineVersion:
+    Type: String
+    Description: The DB Engine Version to use
+    Default: 12.3
+
+  Stage:
+    Type: String
+    Description: The environment of deployment    
+    AllowedValues: [ dev, prod ]
+
+  HostedZoneName:
+    Type: String
+    Description: Domain name with a trailing period.
+  
+  DBPort:
+    Type: String
+    Description: The port for the DB
+    Default: 5432
+
+  NetworkStackName:
+    Type: String
+    Description: The name of the stack which created Network and DB
+    Default: network-config
+
+Resources:
+  
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup    
+    Properties:
+      DBSubnetGroupDescription: !Ref AWS::StackName
+      SubnetIds:
+        - Fn::ImportValue:
+            !Sub ${NetworkStackName}-subnet1
+        - Fn::ImportValue:
+            !Sub ${NetworkStackName}-subnet2
+
+  DBInstance:
+    DeletionPolicy: Delete # You may not want to do this for production
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllowMajorVersionUpgrade: true
+      DBInstanceIdentifier: !Sub ${DBInstanceID}-${Stage}
+      DBName: !Sub "{{resolve:ssm:/DataBaseCredentials/${Stage}/dbname:1}}"
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref DBAllocatedStorage
+      DBParameterGroupName: default.postgres12
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      Engine: !Ref DBEngine
+      EngineVersion: !Ref DBEngineVersion
+      MasterUsername: !Sub "{{resolve:ssm:/DataBaseCredentials/${Stage}/username:1}}"
+      MasterUserPassword: !Sub "{{resolve:ssm-secure:/DataBaseCredentials/${Stage}/password:1}}"
+      Port: !Ref DBPort
+      VPCSecurityGroups:
+        - Fn::ImportValue:
+            !Sub ${NetworkStackName}-ELB-SG
+        - Fn::ImportValue:
+            !Sub ${NetworkStackName}-container-SG
+
+  DBRecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneName: !Ref HostedZoneName
+      Name: !Sub database-${Stage}.${HostedZoneName}
+      ResourceRecords:
+        - !GetAtt DBInstance.Endpoint.Address
+      TTL: 60
+      Type: CNAME
+
+Outputs:
+
+  DBEndpoint:
+    Description: The endpoint of the Database
+    Value: !Ref DBRecordSet
+    Export:
+      Name: !Sub ${AWS::StackName}-DBEndpoint
