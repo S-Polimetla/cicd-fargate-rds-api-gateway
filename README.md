@@ -33,7 +33,7 @@ This is similar to running
 ````
 docker run -e VARIABLE1=value1 -p 8080:8080 <Your-Image-Name>:<Your-Tag>
 ````
-5. The LoadBalancer here is public facing and has no security or validation for the incoming requests.  In the next step [3-elb-api-gateway](https://github.com/S-Polimetla/cicd-fargate-rds-api-gateway/tree/3-fargate-api-gateway), the ELB is set behind a API Gateway which is exposed to the API consumer instead of ELB DNS. The API consumer is authenticated using API Key.
+5. The LoadBalancer here is public facing and has no security or validation for the incoming requests.  In the next step [3-elb-api-gateway](https://github.com/S-Polimetla/cicd-fargate-rds-api-gateway/tree/3-elb-api-gateway), the ELB is set behind a API Gateway which is exposed to the API consumer instead of ELB DNS. The API consumer is authenticated using API Key.
 
 ### _Note_
 The database created here is mapped to a custom domain name.  It is optional.
