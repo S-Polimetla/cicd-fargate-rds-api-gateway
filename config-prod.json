@@ -3,6 +3,8 @@
       "DockerImageRepository": "employee-ecs-image",
       "ImageTag": "latest",
       "NetworkStackName": "network-config",
+      "S3Bucket": "de.polimetla.codepipeline.employee-service",
+      "ApiStackName": "api-config-prod",
       "Stage": "prod"
     }
   }

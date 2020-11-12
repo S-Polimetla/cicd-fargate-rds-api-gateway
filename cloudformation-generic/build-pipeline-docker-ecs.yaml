@@ -18,7 +18,7 @@ Parameters:
   RepositoryBranch:
     Type: String
     Description: The name of the branch.
-    Default: 2-rds-fargate-secrets
+    Default: 3-elb-api-gateway
   DockerImageRepository: # Should be the same as 'DockerImageRepository' in config.json
     Type: String
     Description: The name of the ECR Repository  
@@ -307,3 +307,13 @@ Resources:
                   - iam:PassRole
                 Resource:
                   - !Sub arn:aws:iam::${AWS::AccountId}:role/*
+              - Effect: Allow
+                Action:
+                  - apigateway:*
+                Resource:
+                  - !Sub arn:aws:apigateway:${AWS::Region}
+              - Effect: Allow
+                Action:
+                  - s3:Get*
+                Resource:
+                  - !Sub arn:aws:s3:::${ArtifactsBucket}/* # To create API from swagger file 

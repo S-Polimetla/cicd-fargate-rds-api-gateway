@@ -14,10 +14,22 @@ Parameters:
   NetworkStackName:
     Type: String
     Description: The name of the stack which created Network and DB
-  
+
+  ApiStackName:
+    Type: String
+    Description: The name of the stack which created the API Gateway Configuration
+
   Stage:
     Type: String
-    Description: The name of the deployment stage
+    Description: The stage of the deployed API
+    AllowedValues:
+      - dev
+      - uat
+      - prod
+    
+  S3Bucket:
+    Type: String
+    Description: The S3 Bucket for the service    
 
 Resources:
 
@@ -186,12 +198,49 @@ Resources:
                 Resource:
                   - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/DataBaseCredentials/*
 
+  EmployeeApi:
+    Type: AWS::ApiGateway::RestApi
+    DependsOn: Service # Having API creation wait until the ECS service is up
+    Properties:
+      BodyS3Location:
+        Bucket: !Ref S3Bucket
+        Key: swagger.yaml
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      Name: !Sub employee-service-${Stage}
+
+  EmployeeApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties:      
+      RestApiId: !Ref EmployeeApi
+
+  EmployeeApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      DeploymentId: !Ref EmployeeApiDeployment
+      RestApiId: !Ref EmployeeApi
+      StageName: !Ref Stage
+      Variables:
+        employeeELB: !GetAtt LoadBalancer.DNSName
+
+  ApiBasePathMapping:
+    Type: AWS::ApiGateway::BasePathMapping
+    DependsOn: EmployeeApiStage
+    Properties:
+      BasePath: employees
+      DomainName:
+        Fn::ImportValue:
+          !Sub ${ApiStackName}-Api-DomainName
+      RestApiId: !Ref EmployeeApi
+      Stage: !Ref EmployeeApiStage
+
 Outputs:
 
-  ApiEndpoint:
-    Description: Employee API Endpoint
+  APIEndPoint:
+    Description: The end point to access the API
     Value: !Sub
-      - 'http://${ELB_DNS}/employees'
-      - ELB_DNS: !GetAtt LoadBalancer.DNSName     
-    Export:
-      Name: !Sub ${Stage}-EmployeeApiEndpoint
+      - 'https://${DomainName}/employees'
+      - DomainName:
+          Fn::ImportValue:
+            !Sub ${ApiStackName}-Api-DomainName

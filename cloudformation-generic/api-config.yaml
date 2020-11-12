@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for creating API Gateway configuration
+# Prior to creation of this stack, DNS configuration of my domain is exported to Route53
+# template.yaml is dependent on this stack. Make sure that the name of this stack matches with the parameters in config-${Stage}.json
+
+Parameters:
+
+  HostedZoneName:
+    Type: String
+    Description: The Domain name of the API. Do not include trailing period here.
+
+  HostedZoneId:
+    Type: String
+    Description: The Id of the domain in Route53.
+
+  UsagePlanName:
+    Type: String
+    Description: Name of the Usage Plan
+    Default: DevUsagePlan
+    AllowedValues: [ DevUsagePlan, UATUsagePlan, ProdUsagePlan ]
+    
+  Stage:
+    Type: String
+    Description: The environment for the deployment
+    Default: dev
+    AllowedValues: [ dev, uat, prod ]
+
+  QuotaLimit:
+    Type: Number
+    Description: The requests Quota Limit
+    Default: 1000
+  
+  QuotaPeriod:
+    Type: String
+    Description: The Quota Period type (e.g. DAY,WEEK,MONTH)
+    Default: MONTH
+    
+  ThrottleBurstLimit:
+    Type: Number
+    Description: The requests Burst Limit
+    Default: 200
+  
+  ThrottleRateLimit:
+    Type: Number
+    Description: The requests per second Rate Limit
+    Default: 100
+
+Resources:
+
+  ApiUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    Properties: 
+      Quota:
+        Limit: !Ref QuotaLimit
+        Period: !Ref QuotaPeriod
+      Throttle:
+        BurstLimit: !Ref ThrottleBurstLimit
+        RateLimit: !Ref ThrottleRateLimit    
+      UsagePlanName: !Ref UsagePlanName
+    
+  ApiKey:
+    Type: AWS::ApiGateway::ApiKey
+    Properties:
+      Name: !Sub api-key-${Stage}
+      Enabled: true
+
+  ApiKeyAssociation: # Associates a API key with a usage plan
+    Type: AWS::ApiGateway::UsagePlanKey
+    Properties: 
+      KeyId: !Ref ApiKey
+      KeyType: API_KEY
+      UsagePlanId: !Ref ApiUsagePlan
+
+  ApiDomainName:
+    Type: AWS::ApiGateway::DomainName
+    Properties: 
+      DomainName: !Sub api-${Stage}.${HostedZoneName}
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      SecurityPolicy: TLS_1_2   
+      RegionalCertificateArn: !Ref SSLCertificate
+
+  ApiRecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneName: !Sub ${HostedZoneName}. # Trailing period is necessary
+      Name: !Ref ApiDomainName
+      ResourceRecords:
+        - !GetAtt ApiDomainName.RegionalDomainName
+      TTL: 60
+      Type: CNAME
+
+  SSLCertificate:  
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Sub 'api-${Stage}.${HostedZoneName}'
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Sub 'api-${Stage}.${HostedZoneName}'
+          HostedZoneId: !Ref HostedZoneId # This the alphanumeric Id of the domain in Route53. 
+          # This creates a CNAME record for the SSL certificate and no manual DNS validation is necessary. 
+
+Outputs:
+  DomainName:
+    Description: The Domain name
+    Value: !Ref ApiDomainName
+    Export:
+      Name: !Sub ${AWS::StackName}-Api-DomainName

@@ -1,0 +1,195 @@
+swagger: "2.0"
+info:
+  version: 1.0.0  
+  description: Welcome to API documentation of Employee Service by GitHub/S-Polimetla
+
+# Only relevant for API documentation
+host: api-dev.polimetla.de
+basePath: /employees
+# The actual mapping is done in ApiBasePathMapping section of template.yaml.
+# The mapping config in template.yaml overrides this
+
+schemes:
+  - https
+securityDefinitions:
+  api_key:
+    type: apiKey
+    name: x-api-key
+    in: header
+x-amazon-apigateway-request-validators:
+  RequestValidator:
+    validateRequestBody: true # Checks JSON schema for POST requests
+    validateRequestParameters: true
+x-amazon-apigateway-request-validator: RequestValidator
+    
+paths:
+  /:
+    get:
+      summary: Get Employees
+      parameters:
+        - name: limit
+          in: query
+          description: The maximum number of employees to fetch
+          required: false
+          type: integer
+      produces:
+        - "application/json"
+      responses:
+        "200":
+          description: Successful operation
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/Employee"
+        "400":
+          description: Bad request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not Found
+        "500":
+          description: Internal server error
+      security:
+        - api_key: []
+      x-amazon-apigateway-integration:
+        responses:
+          default:
+            statusCode: "200"
+        uri: http://${stageVariables.employeeELB}/employees
+        passthroughBehavior: when_no_match
+        httpMethod: GET
+        contentHandling: "CONVERT_TO_TEXT"
+        type: http_proxy
+
+    post:
+      summary: Create Employee
+      parameters:
+        - name: employee
+          in: body
+          description: The content of the employee object
+          required: true
+          schema:
+            $ref: "#/definitions/Employee"
+      responses:
+        "200":
+          description: Successful operation
+        "400":
+          description: Bad request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not Found
+        "500":
+          description: Internal server error
+      security:
+        - api_key: []
+      x-amazon-apigateway-integration:
+        responses:
+          default:
+            statusCode: "200"
+        uri: http://${stageVariables.employeeELB}/employees
+        passthroughBehavior: when_no_match
+        httpMethod: POST
+        contentHandling: "CONVERT_TO_TEXT"
+        type: http_proxy
+
+    delete:
+      summary: Delete an Employee
+      parameters:
+        - name: id
+          in: path
+          description: The content of the employee object
+          required: true
+      responses:
+        "200":
+          description: Successful operation
+        "400":
+          description: Bad request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not Found
+        "500":
+          description: Internal server error
+      security:
+        - api_key: []
+      x-amazon-apigateway-integration:
+        responses:
+          default:
+            statusCode: "200"
+        uri: http://${stageVariables.employeeELB}/employees
+        passthroughBehavior: when_no_match
+        httpMethod: DELETE
+        contentHandling: "CONVERT_TO_TEXT"
+        type: http_proxy
+
+  /{id}:
+    get:
+      summary: Get Employees
+      parameters:
+        - name: id
+          in: path
+          description: The id of the employee to fetch
+          required: true
+          type: integer
+      produces:
+        - "application/json"
+      responses:
+        "200":
+          description: Successful operation
+          schema:
+            $ref: "#/definitions/Employee"
+        "400":
+          description: Bad request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not Found
+        "500":
+          description: Internal server error
+      security:
+        - api_key: []
+      x-amazon-apigateway-integration:
+        responses:
+          default:
+            statusCode: "200"
+        uri: http://${stageVariables.employeeELB}/employees
+        passthroughBehavior: when_no_match
+        httpMethod: GET
+        contentHandling: "CONVERT_TO_TEXT"
+        type: http_proxy
+
+definitions:
+  Employee:
+    type: "object"
+    description: "A Single employee entry"
+    properties:
+      employeeId:
+        type: integer
+      firstName:
+        type: string
+      lastName:
+        type: string
+      age:
+        type: integer
+      gender:
+        type: string
+        enum:
+          - MALE
+          - FEMALE
+          - OTHER
+          - "0"
+          - "1"
+          - "2"
+    required:
+      - firstName
+      - lastName
+      - age 

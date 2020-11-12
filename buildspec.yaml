@@ -7,6 +7,10 @@ phases:
     commands:
       - apt-get -y update && apt-get -y install moreutils # For using 'sponge' later
       - mvn clean install # Creates a jar file
+  pre_build:
+    commands:
+      # Upload swagger file to S3 to use it later
+      - aws s3 cp swagger.yaml s3://$S3_BUCKET
   build:
     commands:
       - $(aws ecr get-login --no-include-email --region $AWS_REGION) # Login to AWS ECR
